@@ -1,0 +1,35 @@
+{
+  "project": "next-app",
+  "platform": "next-js",
+  "environments": {
+    "production": {
+      "attachStacktrace": true,
+      "maxBreadcrumbs": 50,
+      "sampleRate": 1.0,
+      "tracesSampleRate": 0.1,
+      "profileSessionSampleRate": 0,
+      "replaysSessionSampleRate": 0.05,
+      "replaysOnErrorSampleRate": 1.0,
+      "integrations": {
+        "replay": {
+          "maskAllText": true
+        }
+      },
+      "release": "1.4.2"
+    },
+    "staging": {
+      "attachStacktrace": true,
+      "maxBreadcrumbs": 50,
+      "sampleRate": 1.0,
+      "tracesSampleRate": 1.0,
+      "debug": true,
+      "profileSessionSampleRate": 0,
+      "integrations": {
+        "replay": {
+          "maskAllText": true
+        }
+      },
+      "release": "1.4.2"
+    }
+  }
+}

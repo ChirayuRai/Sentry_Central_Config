@@ -1,13 +1,24 @@
 """CI step, run on every build and release:
-    python generate.py --project <name> [--release <version>]
+    python generate.py --project <name> [--release <version>] [--config <path>]
 """
-import argparse, json, re, shutil, sys
+import argparse, json, re, sys
 from pathlib import Path
 
 import yaml
 
 HERE = Path(__file__).parent
-BRIDGES = {"javascript-browser": "sentry_bridge.js", "python": "sentry_bridge.py", "django": "sentry_bridge.py", "react": "sentry_bridge.js", "next-js": "sentry_bridge.js"}
+SNAPSHOT_FILE = "sentry_local_config.json"
+BRIDGES = {
+    "python": "sentry_bridge.py",
+    "django": "sentry_bridge.py",
+    "javascript-browser": "sentry_bridge.js",
+    "react": "sentry_bridge.js",
+    "next-js": "sentry_bridge.js",  # client side only
+}
+# The JavaScript bridge imports @sentry/browser; each project's copy imports its own SDK package.
+JS_PACKAGES = {"javascript-browser": "@sentry/browser", "react": "@sentry/react", "next-js": "@sentry/nextjs"}
+# Integrations an SDK adds on its own: @sentry/nextjs adds browserTracing on the client.
+DEFAULT_INTEGRATIONS = {"next-js": {"browserTracing"}}
 ALLOWED = {p: set((HERE / "platforms" / f"{p}.txt").read_text().split()) for p in BRIDGES}
 
 # Functions and objects can't live in YAML; they're passed in code.
@@ -30,7 +41,8 @@ def snake(key):
 
 
 def native_name(key, platform):
-    return key if platform == "python" else camel(key)
+    """Python SDKs use snake_case names; JavaScript SDKs use camelCase."""
+    return key if BRIDGES[platform] == "sentry_bridge.py" else camel(key)
 
 
 def merge(base, override):
@@ -54,6 +66,8 @@ def check_options(where, options, platforms, native, errors):
             errors.append(f"{where}.{key}: set by the bridge call or CI, not the config")
         elif not any((key if native else native_name(key, p)) in ALLOWED[p] for p in platforms):
             errors.append(f"{where}.{key}: unknown option for {', '.join(platforms)}")
+        elif key == "integrations" and not isinstance(value, (dict, type(None))):
+            errors.append(f"{where}.{key}: must be a map of integration name to options")
         elif snake(key).endswith("sample_rate") and (
             isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 <= value <= 1
         ):
@@ -128,14 +142,17 @@ def resolve(config, name, release):
 
 def check_resolved(snapshot, errors):
     """Browser sample rates do nothing without their integration."""
-    if snapshot["platform"] != "javascript-browser":
+    platform = snapshot["platform"]
+    if platform not in JS_PACKAGES:
         return
     needs = {"tracesSampleRate": "browserTracing", "replaysSessionSampleRate": "replay",
              "replaysOnErrorSampleRate": "replay", "profileSessionSampleRate": "browserProfiling"}
+    defaults = DEFAULT_INTEGRATIONS.get(platform, set())
     for env, options in snapshot["environments"].items():
         integrations = options.get("integrations") or {}
         for rate, integration in needs.items():
-            if options.get(rate) not in (None, 0) and integrations.get(integration, False) is False:
+            enabled = integrations.get(integration, integration in defaults) is not False
+            if options.get(rate) not in (None, 0) and not enabled:
                 errors.append(f"{snapshot['project']} ({env}): {rate} is set but the {integration} integration isn't")
 
 
@@ -143,8 +160,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--project", required=True)
     parser.add_argument("--release")
-    parser.add_argument("--config", type=Path, default=HERE / "sentry_config.yaml",
-                        help="path to the central config (default: sentry_config.yaml next to this script)")
+    parser.add_argument("--config", type=Path, default=HERE / "sentry_main_config.yaml",
+                        help="path to the central config (default: sentry_main_config.yaml next to this script)")
     args = parser.parse_args()
 
     config = yaml.safe_load(args.config.read_text())
@@ -160,10 +177,14 @@ def main():
 
     root = Path(config[args.project]["root"])
     root.mkdir(parents=True, exist_ok=True)
-    (root / "sentry_local_config.json").write_text(json.dumps(snapshot, indent=2))
-    bridge = BRIDGES[snapshot["platform"]]
-    shutil.copy(HERE / "bridges" / bridge, root / bridge)
-    print(f"Wrote {root / 'sentry_local_config.json'}")
+    (root / SNAPSHOT_FILE).write_text(json.dumps(snapshot, indent=2))
+    platform = snapshot["platform"]
+    bridge = BRIDGES[platform]
+    source = (HERE / "bridges" / bridge).read_bytes()
+    if platform in JS_PACKAGES:
+        source = source.replace(b'from "@sentry/browser"', f'from "{JS_PACKAGES[platform]}"'.encode())
+    (root / bridge).write_bytes(source)
+    print(f"Wrote {root / SNAPSHOT_FILE} and {root / bridge}")
 
 
 if __name__ == "__main__":

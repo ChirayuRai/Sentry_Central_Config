@@ -56,3 +56,4 @@ trace_ignore_status_codes
 trace_lifecycle
 trace_propagation_targets
 traces_sample_rate
+transport_queue_size

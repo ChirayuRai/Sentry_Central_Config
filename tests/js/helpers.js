@@ -1,4 +1,4 @@
-import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -8,6 +8,8 @@ export const GENERATED = join(REPO, "tests", ".generated");
 export const BRIDGE = join(REPO, "sentry-config", "bridges", "sentry_bridge.js");
 export const DSN = "https://public@o0.ingest.sentry.io/0";
 export const RELEASE = "1.4.2";
+// The SDK package each platform's bridge copy imports (JS_PACKAGES in generate.py).
+const PACKAGES = { "javascript-browser": "@sentry/browser", react: "@sentry/react", "next-js": "@sentry/nextjs" };
 
 /** A golden snapshot written by generate.py from tests/fixtures/config.yaml. */
 export function golden(project) {
@@ -29,8 +31,10 @@ export async function loadBridge(snapshot) {
   if (typeof snapshot === "string") snapshot = golden(snapshot);
   const folder = join(GENERATED, randomUUID());
   mkdirSync(folder, { recursive: true });
-  writeFileSync(join(folder, "sentry_config.json"), JSON.stringify(snapshot));
-  copyFileSync(BRIDGE, join(folder, "sentry_bridge.js"));
+  writeFileSync(join(folder, "sentry_local_config.json"), JSON.stringify(snapshot));
+  const bridge = readFileSync(BRIDGE, "utf8")
+    .replaceAll('from "@sentry/browser"', `from "${PACKAGES[snapshot.platform]}"`);
+  writeFileSync(join(folder, "sentry_bridge.js"), bridge);
   return import(join(folder, "sentry_bridge.js"));
 }
 

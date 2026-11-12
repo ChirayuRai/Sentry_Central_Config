@@ -1,8 +1,11 @@
-// Tests for the JavaScript bridge, run against the installed @sentry/browser.
+// Tests for the JavaScript bridge, run against the installed @sentry/browser and @sentry/react.
 // The bridge is loaded the way a project gets it: a copy sitting next to a
-// sentry_config.json snapshot. Snapshots come from tests/fixtures/expected/.
+// sentry_local_config.json snapshot. Snapshots come from tests/fixtures/expected/.
+// @sentry/nextjs isn't installed because it pulls in Next.js; the Python tests
+// check that Next.js projects get a bridge importing it.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as Sentry from "@sentry/browser";
+import * as SentryReact from "@sentry/react";
 import { DSN, RELEASE, captureTransport, golden, loadBridge, snapshotWith } from "./helpers.js";
 
 afterEach(async () => {
@@ -123,6 +126,19 @@ describe("what the SDK ends up with", () => {
       });
     }
   }
+
+  for (const env of ["production", "staging"]) {
+    it(`initializes @sentry/react with react-app / ${env}`, async () => {
+      const { getSentryOptions } = await loadBridge("react-app");
+      SentryReact.init(getSentryOptions("react-app", env, DSN));
+      const client = SentryReact.getClient();
+      const { integrations, ...values } = golden("react-app").environments[env];
+      expect(client.getOptions()).toMatchObject(values);
+      expect(client.getOptions()._metadata.sdk.name).toBe("sentry.javascript.react");
+      expect(client.getIntegrationByName("BrowserTracing")).toBeDefined();
+      expect(client.getIntegrationByName("Replay")).toBeDefined();
+    });
+  }
 });
 
 describe("what actually gets sent", () => {
@@ -173,6 +189,29 @@ describe("what actually gets sent", () => {
     rootSpans(5);
     await Sentry.flush(1000);
     expect(sent.rootSpanNames()).toEqual([]);
+  });
+
+  it("sends at most transportOptions.bufferSize envelopes at once and drops the rest", async () => {
+    // Requests stay open until released, so the buffer fills up.
+    const open = [];
+    const transport = (options) =>
+      Sentry.createTransport(options, () => new Promise((resolve) => open.push(() => resolve({ statusCode: 200 }))));
+    // Only errors: no session envelope at startup, no spans.
+    const snapshot = snapshotWith("web-new", "staging", {
+      transportOptions: { bufferSize: 2 },
+      integrations: { browserSession: false },
+    });
+    await init(snapshot, "web-new", "staging", { transport });
+    expect(Sentry.getClient().getOptions().transportOptions).toEqual({ bufferSize: 2 });
+    try {
+      for (let i = 0; i < 5; i++) Sentry.captureException(new Error(`error ${i}`));
+      await Sentry.flush(100);
+      expect(open).toHaveLength(2); // the SDK default of 64 would have sent all 5
+    } finally {
+      open.forEach((release) => release()); // Sentry.close(0) in afterEach waits for open requests
+    }
+    await Sentry.flush(1000);
+    expect(open).toHaveLength(2); // the other 3 were dropped, not queued
   });
 
   it("runs a beforeSend passed in code", async () => {

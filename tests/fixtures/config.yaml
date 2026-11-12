@@ -1,4 +1,4 @@
-# Test fixture. Covers every merge rule and both platforms.
+# Test fixture. Covers every merge rule and every platform.
 # The expected/ folder holds what generate.py should produce from this file
 # with --release 1.4.2. Regenerate it with: UPDATE_GOLDEN=1 pytest
 
@@ -20,6 +20,7 @@ default:
   native:
     javascript-browser:
       profileSessionSampleRate: 0
+      transportOptions: { bufferSize: 30 }
       ignoreErrors:
         - ResizeObserver loop limit exceeded
         - regex: "^Script error\\.?$"
@@ -30,12 +31,26 @@ default:
       integrations:
         browserTracing: {}
         replay: { maskAllText: true, blockAllMedia: true }
+    react:
+      profileSessionSampleRate: 0
+      integrations:
+        browserTracing: {}
+        replay: {}
+    # @sentry/nextjs adds browserTracing on its own, so it isn't listed.
+    next-js:
+      profileSessionSampleRate: 0
+      integrations:
+        replay: { maskAllText: true }
     python:
       ignore_errors: [KeyboardInterrupt]
       include_local_variables: false
       trace_propagation_targets: ["^https://api\\.example\\.com"]
       integrations:
         logging.LoggingIntegration: { level: 20, event_level: 40 }
+    django:
+      enable_logs: true
+      integrations:
+        django.DjangoIntegration: { transaction_style: url }
 
 # Overrides a rate in one environment, appends to a list, merges into an
 # integration's options and turns off a default integration.
@@ -72,3 +87,23 @@ api:
 worker:
   root: out/worker
   platform: python
+
+# The bridge copy imports @sentry/react.
+react-app:
+  root: out/react-app
+  platform: react
+
+# Next.js client side. The bridge copy imports @sentry/nextjs.
+next-app:
+  root: out/next-app
+  platform: next-js
+
+# Uses the Python bridge and snake_case names, like python.
+django-app:
+  root: out/django-app
+  platform: django
+  shared:
+    max_breadcrumbs: 30
+  environments:
+    staging:
+      traces_sample_rate: 0.5

@@ -1,6 +1,7 @@
 """Tests for the CI step (sentry-config/generate.py)."""
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -8,7 +9,8 @@ import pytest
 import yaml
 
 import generate
-from conftest import CONFIG_DIR, EXPECTED, FIXTURE_CONFIG, PROJECTS, RELEASE
+from conftest import (CONFIG_DIR, DSN, EXPECTED, FIXTURE_CONFIG, PLATFORMS, PROJECTS, RELEASE, golden,
+                      import_file)
 
 
 def run_generate(cwd, *args, config=FIXTURE_CONFIG):
@@ -16,6 +18,13 @@ def run_generate(cwd, *args, config=FIXTURE_CONFIG):
         [sys.executable, str(CONFIG_DIR / "generate.py"), "--config", str(config), *args],
         cwd=cwd, capture_output=True, text=True,
     )
+
+
+def generated(tmp_path, project):
+    """Run generate.py for a fixture project and return the folder it wrote."""
+    result = run_generate(tmp_path, "--project", project, "--release", RELEASE)
+    assert result.returncode == 0, result.stderr
+    return tmp_path / "out" / project
 
 
 def write_config(tmp_path, config):
@@ -32,10 +41,7 @@ def resolved(config, project, env, release=None):
 
 @pytest.mark.parametrize("project", PROJECTS)
 def test_output_matches_golden_file(project, tmp_path):
-    result = run_generate(tmp_path, "--project", project, "--release", RELEASE)
-    assert result.returncode == 0, result.stderr
-
-    snapshot = json.loads((tmp_path / "out" / project / "sentry_local_config.json").read_text())
+    snapshot = json.loads((generated(tmp_path, project) / generate.SNAPSHOT_FILE).read_text())
     expected = EXPECTED / f"{project}.json"
     if os.environ.get("UPDATE_GOLDEN"):
         expected.parent.mkdir(exist_ok=True)
@@ -43,15 +49,48 @@ def test_output_matches_golden_file(project, tmp_path):
     assert snapshot == json.loads(expected.read_text())
 
 
-@pytest.mark.parametrize("project, bridge, other", [
-    ("web-app", "sentry_bridge.js", "sentry_bridge.py"),
-    ("api", "sentry_bridge.py", "sentry_bridge.js"),
+# --- What a project gets -----------------------------------------------------
+# These run the bridge copy generate.py wrote, next to the snapshot it wrote,
+# so a filename mismatch between the two fails here.
+
+@pytest.mark.parametrize("project, bridge", [
+    ("web-app", "sentry_bridge.js"),
+    ("react-app", "sentry_bridge.js"),
+    ("next-app", "sentry_bridge.js"),
+    ("api", "sentry_bridge.py"),
+    ("django-app", "sentry_bridge.py"),
 ])
-def test_copies_only_the_matching_bridge_unchanged(project, bridge, other, tmp_path):
-    assert run_generate(tmp_path, "--project", project).returncode == 0
-    out = tmp_path / "out" / project
-    assert (out / bridge).read_bytes() == (CONFIG_DIR / "bridges" / bridge).read_bytes()
-    assert not (out / other).exists()
+def test_writes_the_snapshot_and_the_matching_bridge_only(project, bridge, tmp_path):
+    out = generated(tmp_path, project)
+    assert sorted(p.name for p in out.iterdir()) == sorted([generate.SNAPSHOT_FILE, bridge])
+
+
+@pytest.mark.parametrize("project, sdk", [
+    ("web-app", "@sentry/browser"),
+    ("react-app", "@sentry/react"),
+    ("next-app", "@sentry/nextjs"),
+])
+def test_javascript_bridge_imports_the_platform_sdk_and_the_snapshot(project, sdk, tmp_path):
+    out = generated(tmp_path, project)
+    source = (out / "sentry_bridge.js").read_text()
+    imports = re.findall(r'^import .+ from "([^"]+)";$', source, re.MULTILINE)
+    local = [path for path in imports if path.startswith(".")]
+    assert [path for path in imports if path not in local] == [sdk]
+    assert local and all((out / path).is_file() for path in local)
+    # Apart from that import, the copy is the bridge unchanged.
+    original = (CONFIG_DIR / "bridges" / "sentry_bridge.js").read_text()
+    assert source.replace(f'from "{sdk}"', 'from "@sentry/browser"') == original
+
+
+@pytest.mark.parametrize("project", ["api", "django-app"])
+def test_python_bridge_loads_the_snapshot(project, tmp_path):
+    out = generated(tmp_path, project)
+    assert (out / "sentry_bridge.py").read_bytes() == (CONFIG_DIR / "bridges" / "sentry_bridge.py").read_bytes()
+    bridge = import_file(out / "sentry_bridge.py")
+    assert bridge.SNAPSHOT == golden(project)
+    options = bridge.get_sentry_options(project, "staging", DSN)
+    assert options["traces_sample_rate"] == 0.5
+    assert options["release"] == RELEASE
 
 
 def test_release_is_left_out_without_the_flag(config):
@@ -113,11 +152,25 @@ def test_project_shared_overrides_default_shared_in_every_environment(config):
         assert resolved(config, "api", env)["max_breadcrumbs"] == 20
 
 
-def test_names_are_converted_for_javascript_and_kept_for_python(config):
-    js = resolved(config, "web-app", "production")
-    py = resolved(config, "api", "production")
-    assert "tracesSampleRate" in js and "traces_sample_rate" not in js
-    assert "traces_sample_rate" in py and "tracesSampleRate" not in py
+@pytest.mark.parametrize("project", PROJECTS)
+def test_names_are_converted_for_javascript_and_kept_for_python(config, project):
+    options = resolved(config, project, "production")
+    if generate.BRIDGES[PLATFORMS[project]] == "sentry_bridge.py":
+        assert {"traces_sample_rate", "max_breadcrumbs", "attach_stacktrace"} <= options.keys()
+        assert "tracesSampleRate" not in options
+    else:
+        assert {"tracesSampleRate", "maxBreadcrumbs", "attachStacktrace"} <= options.keys()
+        assert "traces_sample_rate" not in options
+
+
+def test_django_gets_shared_options_and_its_own_native_ones(config):
+    production = resolved(config, "django-app", "production")
+    assert production["max_breadcrumbs"] == 30
+    assert production["profile_lifecycle"] == "trace"
+    assert production["enable_logs"] is True
+    assert production["integrations"] == {"django.DjangoIntegration": {"transaction_style": "url"}}
+    assert "ignore_errors" not in production  # default.native.python doesn't reach django
+    assert resolved(config, "django-app", "staging")["traces_sample_rate"] == 0.5
 
 
 def test_options_a_platform_lacks_are_dropped(config):
@@ -222,6 +275,15 @@ INVALID = {
     "option from another platform": (
         _set(["api", "environments", "production", "replays_session_sample_rate"], 0.1),
         "api.environments.production.replays_session_sample_rate: unknown option for python"),
+    "JavaScript name for django": (
+        _set(["django-app", "native", "maxBreadcrumbs"], 10),
+        "django-app.native.maxBreadcrumbs: unknown option for django"),
+    "integrations not a map": (
+        _set(["default", "native", "django", "integrations"], "DjangoIntegration()"),
+        "default.native.django.integrations: must be a map of integration name to options"),
+    "integrations as a list": (
+        _set(["react-app", "native", "integrations"], ["replay"]),
+        "react-app.native.integrations: must be a map of integration name to options"),
     "rate above 1": (
         _set(["default", "environments", "production", "traces_sample_rate"], 1.5),
         "default.environments.production.traces_sample_rate: must be a number from 0 to 1"),
@@ -280,10 +342,24 @@ def test_traces_rate_without_browser_tracing_fails(config):
         in _integration_errors(config, "web-app")
 
 
-def test_replay_rate_without_replay_fails(config):
-    config["web-new"]["native"] = {"integrations": {"replay": False}}
-    assert any("replaysSessionSampleRate is set but the replay integration" in e
-               for e in _integration_errors(config, "web-new"))
+@pytest.mark.parametrize("project", ["web-new", "react-app", "next-app"])
+def test_replay_rate_without_replay_fails(config, project):
+    config[project]["native"] = {"integrations": {"replay": False}}
+    assert f"{project} (production): replaysSessionSampleRate is set but the replay integration isn't" \
+        in _integration_errors(config, project)
+
+
+def test_next_js_has_browser_tracing_unless_turned_off(config):
+    assert _integration_errors(config, "next-app") == []
+    config["next-app"]["native"] = {"integrations": {"browserTracing": False}}
+    assert "next-app (production): tracesSampleRate is set but the browserTracing integration isn't" \
+        in _integration_errors(config, "next-app")
+
+
+def test_react_needs_browser_tracing_listed(config):
+    del config["default"]["native"]["react"]["integrations"]["browserTracing"]
+    assert "react-app (production): tracesSampleRate is set but the browserTracing integration isn't" \
+        in _integration_errors(config, "react-app")
 
 
 def test_zero_rate_needs_no_integration(config):

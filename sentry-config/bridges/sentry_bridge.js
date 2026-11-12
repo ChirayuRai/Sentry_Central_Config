@@ -1,4 +1,6 @@
 // Copied in by CI. Do not edit in the project.
+// generate.py points this import at the project's SDK: @sentry/browser, @sentry/react or
+// @sentry/nextjs. For Next.js, import this file from client code only (instrumentation-client).
 import * as Sentry from "@sentry/browser";
 import snapshot from "./sentry_local_config.json";
 
@@ -27,7 +29,8 @@ function buildIntegrations(config = {}, fromCode = []) {
       console.warn(`[sentry] unknown integration "${name}", skipping`);
       continue;
     }
-    configured.push(factory(options === true ? undefined : options));
+    // true, or an empty value in the YAML (null), means the integration's default options.
+    configured.push(factory(options === true || options === null ? undefined : options));
   }
   return (defaults) => [
     ...defaults.filter((i) => !disabled.has(i.name.toLowerCase())),

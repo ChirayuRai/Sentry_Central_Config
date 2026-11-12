@@ -10,6 +10,9 @@
       "profileSessionSampleRate": 0,
       "replaysSessionSampleRate": 0.05,
       "replaysOnErrorSampleRate": 1.0,
+      "transportOptions": {
+        "bufferSize": 30
+      },
       "ignoreErrors": [
         "ResizeObserver loop limit exceeded",
         {
@@ -44,6 +47,9 @@
       "tracesSampleRate": 1.0,
       "debug": true,
       "profileSessionSampleRate": 0,
+      "transportOptions": {
+        "bufferSize": 30
+      },
       "ignoreErrors": [
         "ResizeObserver loop limit exceeded",
         {

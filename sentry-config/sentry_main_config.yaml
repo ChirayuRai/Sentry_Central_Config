@@ -62,10 +62,10 @@ default:
       profile_lifecycle: "trace"
       enable_logs: True
       integrations:
-        DjangoIntegration()
+        django.DjangoIntegration: {}   # class path under sentry_sdk.integrations
 
 web-app:
-  root: /Users/chirayurai/Code/company/customers/metlife/sentry-central-config/examples/web-app/src
+  root: examples/web-app/src
   platform: javascript-browser
   environments:
     production:

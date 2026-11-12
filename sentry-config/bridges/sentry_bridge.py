@@ -6,7 +6,7 @@ from pathlib import Path
 
 from sentry_sdk.consts import DEFAULT_OPTIONS
 
-SNAPSHOT = json.loads((Path(__file__).parent / "sentry_config.json").read_text())
+SNAPSHOT = json.loads((Path(__file__).parent / "sentry_local_config.json").read_text())
 logger = logging.getLogger(__name__)
 
 

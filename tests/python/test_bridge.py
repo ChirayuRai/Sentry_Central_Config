@@ -1,7 +1,7 @@
 """Tests for the Python bridge, run against the installed sentry-sdk.
 
 The bridge is loaded the way a project gets it: a copy sitting next to a
-sentry_config.json snapshot. Snapshots come from tests/fixtures/expected/.
+sentry_local_config.json snapshot. Snapshots come from tests/fixtures/expected/.
 """
 import copy
 import logging
@@ -13,9 +13,7 @@ from sentry_sdk.integrations.dedupe import DedupeIntegration
 from sentry_sdk.integrations.logging import LoggingIntegration
 from sentry_sdk.transport import Transport
 
-from conftest import RELEASE, golden
-
-DSN = "https://public@o0.ingest.sentry.io/0"
+from conftest import DSN, RELEASE, golden
 
 
 class CaptureTransport(Transport):
@@ -126,7 +124,7 @@ def test_options_the_sdk_lacks_are_dropped_with_a_warning(load_bridge, caplog):
 
 # --- What the SDK ends up with -----------------------------------------------
 
-@pytest.mark.parametrize("project", ["api", "worker"])
+@pytest.mark.parametrize("project", ["api", "worker", "django-app"])
 @pytest.mark.parametrize("env", ["production", "staging"])
 def test_sdk_accepts_every_snapshot(load_bridge, project, env):
     sentry_sdk.init(**load_bridge(project).get_sentry_options(project, env, DSN))

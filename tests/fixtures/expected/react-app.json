@@ -1,0 +1,33 @@
+{
+  "project": "react-app",
+  "platform": "react",
+  "environments": {
+    "production": {
+      "attachStacktrace": true,
+      "maxBreadcrumbs": 50,
+      "sampleRate": 1.0,
+      "tracesSampleRate": 0.1,
+      "profileSessionSampleRate": 0,
+      "replaysSessionSampleRate": 0.05,
+      "replaysOnErrorSampleRate": 1.0,
+      "integrations": {
+        "browserTracing": {},
+        "replay": {}
+      },
+      "release": "1.4.2"
+    },
+    "staging": {
+      "attachStacktrace": true,
+      "maxBreadcrumbs": 50,
+      "sampleRate": 1.0,
+      "tracesSampleRate": 1.0,
+      "debug": true,
+      "profileSessionSampleRate": 0,
+      "integrations": {
+        "browserTracing": {},
+        "replay": {}
+      },
+      "release": "1.4.2"
+    }
+  }
+}
