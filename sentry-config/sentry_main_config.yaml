@@ -1,0 +1,78 @@
+default:
+  # Shared options: snake_case, converted to each SDK's names.
+  # Dropped for platforms that don't support them (replay rates on Python, say).
+  shared:
+    attach_stacktrace: true
+  environments:
+    production:
+      sample_rate: 1.0
+      traces_sample_rate: 1.0
+      profile_session_sample_rate: 1.0
+      replays_session_sample_rate: 0.05
+      replays_on_error_sample_rate: 1.0
+    staging:
+      sample_rate: 1.0
+      traces_sample_rate: 1.0
+      debug: true
+
+  # Native options: each SDK's own names and value formats, passed through as-is.
+  native:
+    javascript-browser:
+      tracesSampleRate: 0.1
+      normalizeDepth: 15
+      ignoreErrors:
+        - ResizeObserver loop limit exceeded      # plain string = substring match
+        - regex: "^Script error\\.?$"             # becomes a RegExp
+      denyUrls:
+        - regex: "^(chrome|moz)-extension://"
+      tracePropagationTargets:
+        - regex: "^https://api\\.example\\.com"
+      replaysSessionSampleRate: 1.0
+      replaysOnErrorSampleRate: 1.0
+      integrations:
+        browserTracing: {}
+        browserProfiling: {}
+        replay: { maskAllText: false, blockAllMedia: true }
+    react:
+      tracesSampleRate: 0.1
+      normalizeDepth: 15
+      denyUrls:
+        - regex: "^(chrome|moz)-extension://"
+      tracePropagationTargets:
+        - regex: "^https://api\\.example\\.com"
+      integrations:
+        browserTracing: {}
+        replay: { maskAllText: true, blockAllMedia: true }
+    next-js:
+      tracesSampleRate: 0.1
+      normalizeDepth: 15
+      ignoreErrors:
+        - ResizeObserver loop limit exceeded      # plain string = substring match
+        - regex: "^Script error\\.?$"             # becomes a RegExp
+      denyUrls:
+        - regex: "^(chrome|moz)-extension://"
+      tracePropagationTargets:
+        - regex: "^https://api\\.example\\.com"
+      integrations:
+        browserTracing: {}
+        replay: { maskAllText: true, blockAllMedia: true }
+    django:
+      ignore_errors: [KeyboardInterrupt]
+      send_default_pii: True
+      profile_lifecycle: "trace"
+      enable_logs: True
+      integrations:
+        DjangoIntegration()
+
+web-app:
+  root: /Users/chirayurai/Code/company/customers/metlife/sentry-central-config/examples/web-app/src
+  platform: javascript-browser
+  environments:
+    production:
+      traces_sample_rate: 0.2
+  native:
+    ignoreErrors: [NonErrorPromiseRejection]
+
+api:
+  root: examples/api/app
+  platform: python

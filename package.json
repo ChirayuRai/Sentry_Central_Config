@@ -1,0 +1,14 @@
+{
+  "name": "sentry-central-config",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@sentry/browser": "11.11.0",
+    "jsdom": "31.0.0",
+    "typescript": "7.0.2",
+    "vitest": "5.1.0"
+  }
+}

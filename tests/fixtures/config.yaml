@@ -1,0 +1,74 @@
+# Test fixture. Covers every merge rule and both platforms.
+# The expected/ folder holds what generate.py should produce from this file
+# with --release 1.4.2. Regenerate it with: UPDATE_GOLDEN=1 pytest
+
+default:
+  shared:
+    attach_stacktrace: true
+    max_breadcrumbs: 50
+  environments:
+    production:
+      sample_rate: 1.0
+      traces_sample_rate: 0.1
+      profile_session_sample_rate: 0.1
+      replays_session_sample_rate: 0.05
+      replays_on_error_sample_rate: 1.0
+    staging:
+      sample_rate: 1.0
+      traces_sample_rate: 1.0
+      debug: true
+  native:
+    javascript-browser:
+      profileSessionSampleRate: 0
+      ignoreErrors:
+        - ResizeObserver loop limit exceeded
+        - regex: "^Script error\\.?$"
+      denyUrls:
+        - regex: "^(chrome|moz)-extension://"
+      tracePropagationTargets:
+        - regex: "^https://api\\.example\\.com"
+      integrations:
+        browserTracing: {}
+        replay: { maskAllText: true, blockAllMedia: true }
+    python:
+      ignore_errors: [KeyboardInterrupt]
+      include_local_variables: false
+      trace_propagation_targets: ["^https://api\\.example\\.com"]
+      integrations:
+        logging.LoggingIntegration: { level: 20, event_level: 40 }
+
+# Overrides a rate in one environment, appends to a list, merges into an
+# integration's options and turns off a default integration.
+web-app:
+  root: out/web-app
+  platform: javascript-browser
+  environments:
+    production:
+      traces_sample_rate: 0.2
+  native:
+    ignoreErrors: [NonErrorPromiseRejection]
+    integrations:
+      replay: { maskAllText: false }
+      dedupe: false
+
+# A new project with no overrides: gets the defaults only.
+web-new:
+  root: out/web-new
+  platform: javascript-browser
+
+api:
+  root: out/api
+  platform: python
+  shared:
+    max_breadcrumbs: 20
+  environments:
+    staging:
+      traces_sample_rate: 0.5
+  native:
+    ignore_errors: [ConnectionResetError]
+    integrations:
+      dedupe.DedupeIntegration: false
+
+worker:
+  root: out/worker
+  platform: python

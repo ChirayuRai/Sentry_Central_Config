@@ -1,0 +1,49 @@
+{
+  "project": "worker",
+  "platform": "python",
+  "environments": {
+    "production": {
+      "attach_stacktrace": true,
+      "max_breadcrumbs": 50,
+      "sample_rate": 1.0,
+      "traces_sample_rate": 0.1,
+      "profile_session_sample_rate": 0.1,
+      "ignore_errors": [
+        "KeyboardInterrupt"
+      ],
+      "include_local_variables": false,
+      "trace_propagation_targets": [
+        "^https://api\\.example\\.com"
+      ],
+      "integrations": {
+        "logging.LoggingIntegration": {
+          "level": 20,
+          "event_level": 40
+        }
+      },
+      "profile_lifecycle": "trace",
+      "release": "1.4.2"
+    },
+    "staging": {
+      "attach_stacktrace": true,
+      "max_breadcrumbs": 50,
+      "sample_rate": 1.0,
+      "traces_sample_rate": 1.0,
+      "debug": true,
+      "ignore_errors": [
+        "KeyboardInterrupt"
+      ],
+      "include_local_variables": false,
+      "trace_propagation_targets": [
+        "^https://api\\.example\\.com"
+      ],
+      "integrations": {
+        "logging.LoggingIntegration": {
+          "level": 20,
+          "event_level": 40
+        }
+      },
+      "release": "1.4.2"
+    }
+  }
+}

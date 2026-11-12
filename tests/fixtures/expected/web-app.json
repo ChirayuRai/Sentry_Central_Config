@@ -1,0 +1,75 @@
+{
+  "project": "web-app",
+  "platform": "javascript-browser",
+  "environments": {
+    "production": {
+      "attachStacktrace": true,
+      "maxBreadcrumbs": 50,
+      "sampleRate": 1.0,
+      "tracesSampleRate": 0.2,
+      "profileSessionSampleRate": 0,
+      "replaysSessionSampleRate": 0.05,
+      "replaysOnErrorSampleRate": 1.0,
+      "ignoreErrors": [
+        "ResizeObserver loop limit exceeded",
+        {
+          "regex": "^Script error\\.?$"
+        },
+        "NonErrorPromiseRejection"
+      ],
+      "denyUrls": [
+        {
+          "regex": "^(chrome|moz)-extension://"
+        }
+      ],
+      "tracePropagationTargets": [
+        {
+          "regex": "^https://api\\.example\\.com"
+        }
+      ],
+      "integrations": {
+        "browserTracing": {},
+        "replay": {
+          "maskAllText": false,
+          "blockAllMedia": true
+        },
+        "dedupe": false
+      },
+      "release": "1.4.2"
+    },
+    "staging": {
+      "attachStacktrace": true,
+      "maxBreadcrumbs": 50,
+      "sampleRate": 1.0,
+      "tracesSampleRate": 1.0,
+      "debug": true,
+      "profileSessionSampleRate": 0,
+      "ignoreErrors": [
+        "ResizeObserver loop limit exceeded",
+        {
+          "regex": "^Script error\\.?$"
+        },
+        "NonErrorPromiseRejection"
+      ],
+      "denyUrls": [
+        {
+          "regex": "^(chrome|moz)-extension://"
+        }
+      ],
+      "tracePropagationTargets": [
+        {
+          "regex": "^https://api\\.example\\.com"
+        }
+      ],
+      "integrations": {
+        "browserTracing": {},
+        "replay": {
+          "maskAllText": false,
+          "blockAllMedia": true
+        },
+        "dedupe": false
+      },
+      "release": "1.4.2"
+    }
+  }
+}
