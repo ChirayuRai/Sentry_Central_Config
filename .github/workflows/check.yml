@@ -1,0 +1,24 @@
+# The central config's own check, on every change. Make it a required status check for main:
+# a config that fails here would fail every app's build. Other CI systems can run the same commands.
+name: Check Sentry config
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: python -m pip install -r requirements-dev.txt
+      - run: python sentry-config/generate.py --check
+      - run: pytest
+      - run: npm ci && npm test

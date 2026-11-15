@@ -17,6 +17,7 @@ vi.mock("@sentry/browser", async (importOriginal) => {
 
 afterEach(() => {
   vi.clearAllMocks();
+  if (vi.isMockFunction(console.warn)) console.warn.mockRestore();
 });
 
 it("passes the merged integration options to the integration", async () => {
@@ -37,4 +38,28 @@ it("uses default options for an integration set to true or left empty", async ()
   expect(names).toEqual(expect.arrayContaining(["BrowserTracing", "Replay"]));
   expect(Sentry.browserTracingIntegration).toHaveBeenCalledWith(undefined);
   expect(Sentry.replayIntegration).toHaveBeenCalledWith(undefined);
+});
+
+it("doesn't build a configured integration that code replaces", async () => {
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  const { getSentryOptions } = await loadBridge("web-app");
+  const fromCode = Sentry.replayIntegration({ maskAllText: true });
+  const options = getSentryOptions("web-app", "production", DSN, { integrations: [fromCode] });
+  // Only the code's instance is built: in a browser, a second Replay instance throws.
+  expect(Sentry.replayIntegration).toHaveBeenCalledTimes(1);
+  expect(options.integrations(Sentry.getDefaultIntegrations({}))).toContain(fromCode);
+  expect(warn).toHaveBeenCalledWith('[sentry] code replaces the configured integration "replay"');
+});
+
+it("skips an integration that throws while it's set up", async () => {
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  Sentry.replayIntegration.mockImplementationOnce(() => {
+    throw new Error("boom");
+  });
+  const { getSentryOptions } = await loadBridge("web-app");
+  const names = getSentryOptions("web-app", "production", DSN)
+    .integrations(Sentry.getDefaultIntegrations({}))
+    .map((integration) => integration.name);
+  expect(names).not.toContain("Replay");
+  expect(warn).toHaveBeenCalledWith('[sentry] skipping integration "replay": boom');
 });

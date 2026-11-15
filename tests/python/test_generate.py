@@ -53,16 +53,16 @@ def test_output_matches_golden_file(project, tmp_path):
 # These run the bridge copy generate.py wrote, next to the snapshot it wrote,
 # so a filename mismatch between the two fails here.
 
-@pytest.mark.parametrize("project, bridge", [
-    ("web-app", "sentry_bridge.js"),
-    ("react-app", "sentry_bridge.js"),
-    ("next-app", "sentry_bridge.js"),
-    ("api", "sentry_bridge.py"),
-    ("django-app", "sentry_bridge.py"),
+@pytest.mark.parametrize("project, files", [
+    ("web-app", ["sentry_bridge.js", "sentry_bridge.d.ts"]),
+    ("react-app", ["sentry_bridge.js", "sentry_bridge.d.ts"]),
+    ("next-app", ["sentry_bridge.js", "sentry_bridge.d.ts"]),
+    ("api", ["sentry_bridge.py"]),
+    ("django-app", ["sentry_bridge.py"]),
 ])
-def test_writes_the_snapshot_and_the_matching_bridge_only(project, bridge, tmp_path):
+def test_writes_the_snapshot_and_the_matching_bridge_only(project, files, tmp_path):
     out = generated(tmp_path, project)
-    assert sorted(p.name for p in out.iterdir()) == sorted([generate.SNAPSHOT_FILE, bridge])
+    assert sorted(p.name for p in out.iterdir()) == sorted([generate.SNAPSHOT_FILE, *files])
 
 
 @pytest.mark.parametrize("project, sdk", [
@@ -80,6 +80,8 @@ def test_javascript_bridge_imports_the_platform_sdk_and_the_snapshot(project, sd
     # Apart from that import, the copy is the bridge unchanged.
     original = (CONFIG_DIR / "bridges" / "sentry_bridge.js").read_text()
     assert source.replace(f'from "{sdk}"', 'from "@sentry/browser"') == original
+    # The types file imports the same SDK.
+    assert re.findall(r'from "([^"]+)"', (out / generate.TYPES).read_text()) == [sdk]
 
 
 @pytest.mark.parametrize("project", ["api", "django-app"])
@@ -267,8 +269,20 @@ INVALID = {
         _set(["default", "shared", "environment"], "production"),
         "default.shared.environment: set by the bridge call or CI"),
     "unknown option": (
-        _set(["api", "native", "sendDefaultPii"], True),
-        "api.native.sendDefaultPii: unknown option for python"),
+        _set(["api", "native", "madeUpOption"], True),
+        "api.native.madeUpOption: unknown option for python"),
+    "typo in a native option": (
+        _set(["web-app", "native", "tracesSampleRte"], 0.1),
+        "web-app.native.tracesSampleRte: unknown option for javascript-browser (did you mean tracesSampleRate?)"),
+    "deprecated option": (
+        _set(["django-app", "native", "send_default_pii"], True),
+        "django-app.native.send_default_pii: deprecated, use data_collection"),
+    "deprecated JavaScript name": (
+        _set(["web-app", "native", "sendDefaultPii"], True),
+        "web-app.native.sendDefaultPii: deprecated, use data_collection (dataCollection in JavaScript)"),
+    "disabled_integrations": (
+        _set(["api", "native", "disabled_integrations"], ["dedupe.DedupeIntegration"]),
+        "api.native.disabled_integrations: set the integration to false under integrations instead"),
     "typo in shared option": (
         _set(["default", "shared", "max_breadcrumb"], 10),
         "default.shared.max_breadcrumb: unknown option"),
@@ -277,7 +291,7 @@ INVALID = {
         "api.environments.production.replays_session_sample_rate: unknown option for python"),
     "JavaScript name for django": (
         _set(["django-app", "native", "maxBreadcrumbs"], 10),
-        "django-app.native.maxBreadcrumbs: unknown option for django"),
+        "django-app.native.maxBreadcrumbs: unknown option for django (did you mean max_breadcrumbs?)"),
     "integrations not a map": (
         _set(["default", "native", "django", "integrations"], "DjangoIntegration()"),
         "default.native.django.integrations: must be a map of integration name to options"),
@@ -314,6 +328,43 @@ INVALID = {
     "missing default": (
         _delete("default"),
         "default: missing, or has no environments block"),
+    "typo in a default key": (
+        _set(["default", "sharred"], {"attach_stacktrace": True}),
+        "default.sharred: unexpected key"),
+    "platform block outside native": (
+        _set(["default", "python"], {"include_local_variables": False}),
+        "default.python: unexpected key"),
+    "project that isn't a map": (
+        _set(["worker"], "python"),
+        "worker: must be a map"),
+    "environments as a list": (
+        _set(["api", "environments"], ["production"]),
+        "api.environments: must be a map"),
+    "native options as a list": (
+        _set(["web-app", "native"], ["ignoreErrors"]),
+        "web-app.native: must be a map"),
+    "list option as a string": (
+        _set(["web-app", "native", "ignoreErrors"], "ResizeObserver"),
+        "web-app.native.ignoreErrors: must be a list"),
+    "invalid regex": (
+        _set(["web-app", "native", "denyUrls"], [{"regex": "("}]),
+        "web-app.native.denyUrls: invalid regex '('"),
+    "regex where Python compares plain strings": (
+        _set(["api", "native", "ignore_errors"], [{"regex": "Timeout.*"}]),
+        "api.native.ignore_errors: the Python SDK compares these as plain strings"),
+    "regex in a shared option that reaches Python": (
+        _set(["default", "shared", "ignore_errors"], [{"regex": "Timeout.*"}]),
+        "{regex} entries would never match on python, django"),
+    "JavaScript integration with a capital letter": (
+        _set(["web-app", "native", "integrations", "Replay"], {}),
+        "web-app.native.integrations.Replay: on javascript-browser, use the factory name without Integration, "
+        "like replay for replayIntegration"),
+    "JavaScript integration with its factory name": (
+        _set(["web-app", "native", "integrations", "replayIntegration"], {}),
+        "web-app.native.integrations.replayIntegration: on javascript-browser, use the factory name"),
+    "Python integration without its module": (
+        _set(["api", "native", "integrations", "DedupeIntegration"], False),
+        "api.native.integrations.DedupeIntegration: on python, use the class path under sentry_sdk.integrations"),
 }
 
 
@@ -392,6 +443,90 @@ def test_a_broken_project_fails_every_build(config, tmp_path):
     result = run_generate(tmp_path, "--project", "web-app", config=write_config(tmp_path, config))
     assert result.returncode == 1
     assert "worker: platform must be one of" in result.stderr
+
+
+def test_a_missing_integration_in_another_project_fails_every_build(config, tmp_path):
+    config["web-app"]["native"]["integrations"]["browserTracing"] = False
+    result = run_generate(tmp_path, "--project", "api", config=write_config(tmp_path, config))
+    assert result.returncode == 1
+    assert "web-app (production): tracesSampleRate is set but the browserTracing integration isn't" \
+        in result.stderr
+
+
+def test_check_validates_every_project_and_writes_nothing(tmp_path):
+    result = run_generate(tmp_path, "--check")
+    assert result.returncode == 0, result.stderr
+    assert f"valid ({len(PROJECTS)} projects)" in result.stdout
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_check_reports_a_problem_in_any_project(config, tmp_path):
+    config["web-app"]["native"]["integrations"]["browserTracing"] = False
+    config["worker"]["platform"] = "ruby"
+    result = run_generate(tmp_path, "--check", config=write_config(tmp_path, config))
+    assert result.returncode == 1
+    assert "worker: platform must be one of" in result.stderr
+
+
+def test_check_reports_a_missing_integration(config, tmp_path):
+    config["web-app"]["native"]["integrations"]["browserTracing"] = False
+    result = run_generate(tmp_path, "--check", config=write_config(tmp_path, config))
+    assert result.returncode == 1
+    assert "web-app (production): tracesSampleRate is set but the browserTracing integration isn't" \
+        in result.stderr
+
+
+def test_project_or_check_is_required(tmp_path):
+    result = run_generate(tmp_path)
+    assert result.returncode == 2
+    assert "one of the arguments --project --check is required" in result.stderr
+
+
+def test_check_covers_a_new_project_on_each_default_platform(config, tmp_path):
+    # With no react project in the config, only a new one would hit this.
+    del config["react-app"]
+    del config["default"]["native"]["react"]["integrations"]["browserTracing"]
+    result = run_generate(tmp_path, "--check", config=write_config(tmp_path, config))
+    assert result.returncode == 1
+    assert "a new react project (production): tracesSampleRate is set but the browserTracing integration isn't" \
+        in result.stderr
+
+
+def test_the_shipped_config_is_valid(tmp_path):
+    result = run_generate(tmp_path, "--check", config=CONFIG_DIR / "sentry_main_config.yaml")
+    assert result.returncode == 0, result.stderr
+
+
+def test_a_duplicate_key_fails(tmp_path):
+    path = tmp_path / "config.yaml"
+    path.write_text("default:\n  environments: {production: {}}\n"
+                    "api: {root: a, platform: python}\napi: {root: b, platform: python}\n")
+    result = run_generate(tmp_path, "--check", config=path)
+    assert result.returncode == 1
+    assert "found duplicate key 'api'" in result.stderr
+    assert "Traceback" not in result.stderr
+
+
+def test_a_yaml_syntax_error_names_the_file_and_line(tmp_path):
+    path = tmp_path / "config.yaml"
+    path.write_text("default:\n  environments: {production: {}\n")
+    result = run_generate(tmp_path, "--check", config=path)
+    assert result.returncode == 1
+    assert 'config.yaml", line' in result.stderr
+    assert "Traceback" not in result.stderr
+
+
+def test_a_missing_config_file_fails_cleanly(tmp_path):
+    result = run_generate(tmp_path, "--check", config=tmp_path / "missing.yaml")
+    assert result.returncode == 1
+    assert "missing.yaml: No such file or directory" in result.stderr
+
+
+def test_an_empty_release_fails(tmp_path):
+    result = run_generate(tmp_path, "--project", "api", "--release", "")
+    assert result.returncode == 1
+    assert "--release: empty" in result.stderr
+    assert not (tmp_path / "out").exists()
 
 
 def test_unknown_project_fails(tmp_path):

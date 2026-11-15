@@ -6,17 +6,27 @@ import snapshot from "./sentry_local_config.json";
 
 // { regex: "..." } in the config becomes a RegExp; plain strings stay substring matches.
 function revive(value) {
-  if (Array.isArray(value)) return value.map(revive);
+  if (Array.isArray(value)) return value.map(revive).filter((entry) => entry !== undefined);
   if (value && typeof value === "object") {
     const keys = Object.keys(value);
-    if (keys.length === 1 && keys[0] === "regex") return new RegExp(value.regex);
+    if (keys.length === 1 && keys[0] === "regex") {
+      try {
+        return new RegExp(value.regex);
+      } catch (error) {
+        console.warn(`[sentry] skipping invalid regex "${value.regex}": ${error.message}`);
+        return undefined;
+      }
+    }
     return Object.fromEntries(keys.map((k) => [k, revive(value[k])]));
   }
   return value;
 }
 
 // { replay: { maskAllText: true }, dedupe: false } -> integration instances.
+// fromCode is a list, or a function that gets the full list, as Sentry.init allows.
 function buildIntegrations(config = {}, fromCode = []) {
+  const codeList = Array.isArray(fromCode) ? fromCode : [];
+  const inCode = new Set(codeList.map((integration) => integration.name.toLowerCase()));
   const disabled = new Set();
   const configured = [];
   for (const [name, options] of Object.entries(config)) {
@@ -24,19 +34,27 @@ function buildIntegrations(config = {}, fromCode = []) {
       disabled.add(name.toLowerCase());
       continue;
     }
+    // One passed in code replaces this one, so don't build it: a second Replay instance throws.
+    if (inCode.has(name.toLowerCase())) {
+      console.warn(`[sentry] code replaces the configured integration "${name}"`);
+      continue;
+    }
     const factory = Sentry[`${name}Integration`];
     if (typeof factory !== "function") {
       console.warn(`[sentry] unknown integration "${name}", skipping`);
       continue;
     }
-    // true, or an empty value in the YAML (null), means the integration's default options.
-    configured.push(factory(options === true || options === null ? undefined : options));
+    try {
+      // true, or an empty value in the YAML (null), means the integration's default options.
+      configured.push(factory(options === true || options === null ? undefined : options));
+    } catch (error) {
+      console.warn(`[sentry] skipping integration "${name}": ${error.message}`);
+    }
   }
-  return (defaults) => [
-    ...defaults.filter((i) => !disabled.has(i.name.toLowerCase())),
-    ...configured,
-    ...fromCode,
-  ];
+  return (defaults) => {
+    const all = [...defaults.filter((i) => !disabled.has(i.name.toLowerCase())), ...configured, ...codeList];
+    return typeof fromCode === "function" ? fromCode(all) : all;
+  };
 }
 
 /**

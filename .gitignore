@@ -2,8 +2,10 @@
 sentry_local_config.json
 sentry_bridge.js
 sentry_bridge.py
+sentry_bridge.d.ts
 !sentry-config/bridges/sentry_bridge.js
 !sentry-config/bridges/sentry_bridge.py
+!sentry-config/bridges/sentry_bridge.d.ts
 
 # Test output
 tests/.generated/

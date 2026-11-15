@@ -84,6 +84,14 @@ def test_unavailable_integrations_are_skipped_with_a_warning(load_bridge, caplog
     assert "made_up.MadeUpIntegration" in caplog.text
 
 
+def test_an_integration_that_fails_to_set_up_is_skipped_with_a_warning(load_bridge, caplog):
+    snapshot = snapshot_with("worker", "production",
+                             integrations={"logging.LoggingIntegration": {"event_levle": 40}})  # typo
+    options = load_bridge(snapshot).get_sentry_options("worker", "production", DSN)
+    assert options["integrations"] == []
+    assert "Skipping Sentry integration 'logging.LoggingIntegration'" in caplog.text
+
+
 def test_unknown_environment_warns_and_leaves_sdk_defaults(load_bridge, caplog):
     options = load_bridge("api").get_sentry_options("api", "qa", DSN)
     assert "No Sentry config for environment 'qa'" in caplog.text
@@ -112,6 +120,13 @@ def test_code_options_override_the_config_with_a_warning(load_bridge, caplog):
 def test_code_integrations_are_appended(load_bridge):
     options = load_bridge("api").get_sentry_options("api", "production", DSN, integrations=[ArgvIntegration()])
     assert [type(i) for i in options["integrations"]] == [LoggingIntegration, ArgvIntegration]
+
+
+def test_an_integration_passed_in_code_replaces_the_configured_one(load_bridge, caplog):
+    from_code = LoggingIntegration(event_level=logging.CRITICAL)
+    options = load_bridge("api").get_sentry_options("api", "production", DSN, integrations=[from_code])
+    assert options["integrations"] == [from_code]
+    assert "Code replaces the configured Sentry integration 'logging.LoggingIntegration'" in caplog.text
 
 
 def test_options_the_sdk_lacks_are_dropped_with_a_warning(load_bridge, caplog):

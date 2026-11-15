@@ -29,8 +29,8 @@ def test_every_listed_option_exists_in_the_installed_sdk(name):
 @pytest.mark.parametrize("name", LISTS)
 def test_report_sdk_options_missing_from_the_list(name):
     # Not a failure: new SDK options just can't be set centrally until they're added.
-    # Options the config can't hold (callbacks, dsn, environment, release) aren't reported.
-    not_in_config = generate.CODE_ONLY | generate.CALLER_SET
+    # Options the config can't hold (callbacks, dsn, environment, release, replaced ones) aren't reported.
+    not_in_config = generate.CODE_ONLY | generate.CALLER_SET | generate.REPLACED.keys()
     new = sorted(k for k in DEFAULT_OPTIONS.keys() - listed(name) - not_in_config if not k.startswith("_"))
     if new:
         warnings.warn(f"sentry-sdk {VERSION} has options not in {name}: {', '.join(new)}")

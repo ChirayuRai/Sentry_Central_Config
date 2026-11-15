@@ -73,6 +73,14 @@ describe("what the bridge returns", () => {
     expect(warn).toHaveBeenCalledWith('[sentry] unknown integration "madeUp", skipping');
   });
 
+  it("skips an invalid regex with a warning", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const snapshot = snapshotWith("web-new", "production", { denyUrls: [{ regex: "(" }, { regex: "^x" }] });
+    const { getSentryOptions } = await loadBridge(snapshot);
+    expect(getSentryOptions("web-new", "production", DSN).denyUrls).toEqual([/^x/]);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('[sentry] skipping invalid regex "("'));
+  });
+
   it("warns on an unknown environment and leaves the SDK defaults", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const { getSentryOptions } = await loadBridge("web-app");
@@ -108,6 +116,15 @@ describe("what the bridge returns", () => {
       getSentryOptions("web-app", "production", DSN, { integrations: [Sentry.feedbackIntegration({ autoInject: false })] }),
     );
     expect(names.slice(-3)).toEqual(["BrowserTracing", "Replay", "Feedback"]);
+  });
+
+  it("accepts integrations from code as a function of the full list", async () => {
+    const { getSentryOptions } = await loadBridge("web-app");
+    const options = getSentryOptions("web-app", "production", DSN, {
+      integrations: (all) => all.filter((integration) => integration.name !== "Replay"),
+    });
+    expect(integrationNames(options)).toContain("BrowserTracing");
+    expect(integrationNames(options)).not.toContain("Replay");
   });
 });
 
