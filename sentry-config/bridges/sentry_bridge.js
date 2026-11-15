@@ -23,10 +23,8 @@ function revive(value) {
 }
 
 // { replay: { maskAllText: true }, dedupe: false } -> integration instances.
-// fromCode is a list, or a function that gets the full list, as Sentry.init allows.
 function buildIntegrations(config = {}, fromCode = []) {
-  const codeList = Array.isArray(fromCode) ? fromCode : [];
-  const inCode = new Set(codeList.map((integration) => integration.name.toLowerCase()));
+  const inCode = new Set(fromCode.map((integration) => integration.name.toLowerCase()));
   const disabled = new Set();
   const configured = [];
   for (const [name, options] of Object.entries(config)) {
@@ -51,14 +49,11 @@ function buildIntegrations(config = {}, fromCode = []) {
       console.warn(`[sentry] skipping integration "${name}": ${error.message}`);
     }
   }
-  return (defaults) => {
-    const all = [...defaults.filter((i) => !disabled.has(i.name.toLowerCase())), ...configured, ...codeList];
-    return typeof fromCode === "function" ? fromCode(all) : all;
-  };
+  return (defaults) => [...defaults.filter((i) => !disabled.has(i.name.toLowerCase())), ...configured, ...fromCode];
 }
 
 /**
- * @param codeOptions callbacks and anything else that can't live in YAML,
+ * @param codeOptions callbacks and anything else that can't be written as data,
  *   e.g. { beforeSend, integrations: [Sentry.feedbackIntegration()] }
  */
 export function getSentryOptions(project, environment, dsn, codeOptions = {}) {

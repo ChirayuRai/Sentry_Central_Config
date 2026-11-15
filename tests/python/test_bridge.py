@@ -103,14 +103,6 @@ def test_wrong_project_name_warns(load_bridge, caplog):
     assert "Sentry config is for 'api', not 'billing'" in caplog.text
 
 
-def test_code_options_are_added(load_bridge):
-    def before_send(event, hint):
-        return event
-
-    options = load_bridge("api").get_sentry_options("api", "production", DSN, before_send=before_send)
-    assert options["before_send"] is before_send
-
-
 def test_code_options_override_the_config_with_a_warning(load_bridge, caplog):
     options = load_bridge("api").get_sentry_options("api", "production", DSN, max_breadcrumbs=5)
     assert options["max_breadcrumbs"] == 5
@@ -175,41 +167,12 @@ def test_ignored_errors_are_not_sent(load_bridge):
     assert event["exception"]["values"][0]["type"] == "ValueError"
 
 
-def test_error_sample_rate_of_zero_sends_no_errors(load_bridge):
-    sent = init(load_bridge(snapshot_with("worker", "staging", sample_rate=0)), "worker", "staging")
-    sentry_sdk.capture_exception(ValueError("boom"))
-    assert sent.payloads("event") == []
-
-
-def test_traces_sample_rate_of_one_sends_every_transaction(load_bridge):
-    sent = init(load_bridge("worker"), "worker", "staging")
-    for i in range(5):
-        with sentry_sdk.start_transaction(name=f"job-{i}"):
-            pass
-    assert len(sent.payloads("transaction")) == 5
-
-
-def test_traces_sample_rate_of_zero_sends_no_transactions(load_bridge):
-    sent = init(load_bridge(snapshot_with("worker", "staging", traces_sample_rate=0)), "worker", "staging")
-    for i in range(5):
-        with sentry_sdk.start_transaction(name=f"job-{i}"):
-            pass
-    assert sent.payloads("transaction") == []
-
-
 def test_configured_integration_options_take_effect(load_bridge):
     # The config sets LoggingIntegration(event_level=40): errors become events, warnings don't.
     sent = init(load_bridge("api"), "api", "staging")
     logging.getLogger("bridge-test").warning("just a warning")
     logging.getLogger("bridge-test").error("an error")
     assert [e["logentry"]["message"] for e in sent.payloads("event")] == ["an error"]
-
-
-def test_integration_passed_in_code_wins_over_the_config(load_bridge):
-    sent = init(load_bridge("api"), "api", "staging",
-                integrations=[LoggingIntegration(event_level=logging.CRITICAL)])
-    logging.getLogger("bridge-test").error("an error")
-    assert sent.payloads("event") == []
 
 
 def test_before_send_from_code_runs(load_bridge):

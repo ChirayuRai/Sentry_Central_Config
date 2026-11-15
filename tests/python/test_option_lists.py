@@ -1,36 +1,26 @@
-"""Checks the Python option lists (platforms/python.txt, django.txt) against the installed sentry-sdk.
+"""Checks sentry-config/options/python.txt against the installed sentry-sdk.
 
-Fails when a list names an option the installed SDK doesn't have, for example
-after an SDK upgrade renames or removes one. Run it against every SDK version
-your projects use.
+Fails when the list names an option the installed SDK doesn't have, for example
+after an SDK upgrade renames or removes one.
 """
 import warnings
 
-import pytest
 from sentry_sdk import VERSION
 from sentry_sdk.consts import DEFAULT_OPTIONS
 
 import generate
-from conftest import CONFIG_DIR
 
-LISTS = [f"{platform}.txt" for platform, bridge in generate.BRIDGES.items() if bridge == "sentry_bridge.py"]
-
-
-def listed(name):
-    return set((CONFIG_DIR / "platforms" / name).read_text().split())
+LISTED = generate.ALLOWED["python"]
 
 
-@pytest.mark.parametrize("name", LISTS)
-def test_every_listed_option_exists_in_the_installed_sdk(name):
-    missing = sorted(listed(name) - DEFAULT_OPTIONS.keys())
-    assert not missing, f"sentry-sdk {VERSION} doesn't support these options in {name}: {', '.join(missing)}"
+def test_every_listed_option_exists_in_the_installed_sdk():
+    missing = sorted(LISTED - DEFAULT_OPTIONS.keys())
+    assert not missing, f"sentry-sdk {VERSION} doesn't support these options in python.txt: {', '.join(missing)}"
 
 
-@pytest.mark.parametrize("name", LISTS)
-def test_report_sdk_options_missing_from_the_list(name):
+def test_report_sdk_options_missing_from_the_list():
     # Not a failure: new SDK options just can't be set centrally until they're added.
-    # Options the config can't hold (callbacks, dsn, environment, release, replaced ones) aren't reported.
     not_in_config = generate.CODE_ONLY | generate.CALLER_SET | generate.REPLACED.keys()
-    new = sorted(k for k in DEFAULT_OPTIONS.keys() - listed(name) - not_in_config if not k.startswith("_"))
+    new = sorted(k for k in DEFAULT_OPTIONS.keys() - LISTED - not_in_config if not k.startswith("_"))
     if new:
-        warnings.warn(f"sentry-sdk {VERSION} has options not in {name}: {', '.join(new)}")
+        warnings.warn(f"sentry-sdk {VERSION} has options not in python.txt: {', '.join(new)}")

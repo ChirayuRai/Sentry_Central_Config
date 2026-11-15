@@ -16,9 +16,9 @@
       "ignoreErrors": [
         "ResizeObserver loop limit exceeded",
         {
-          "regex": "^Script error\\.?$"
+          "regex": "^AbortError"
         },
-        "NonErrorPromiseRejection"
+        "Non-Error promise rejection captured"
       ],
       "denyUrls": [
         {
@@ -53,9 +53,9 @@
       "ignoreErrors": [
         "ResizeObserver loop limit exceeded",
         {
-          "regex": "^Script error\\.?$"
+          "regex": "^AbortError"
         },
-        "NonErrorPromiseRejection"
+        "Non-Error promise rejection captured"
       ],
       "denyUrls": [
         {

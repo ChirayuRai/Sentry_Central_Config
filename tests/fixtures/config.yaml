@@ -23,7 +23,7 @@ default:
       transportOptions: { bufferSize: 30 }
       ignoreErrors:
         - ResizeObserver loop limit exceeded
-        - regex: "^Script error\\.?$"
+        - regex: "^AbortError"
       denyUrls:
         - regex: "^(chrome|moz)-extension://"
       tracePropagationTargets:
@@ -61,7 +61,7 @@ web-app:
     production:
       traces_sample_rate: 0.2
   native:
-    ignoreErrors: [NonErrorPromiseRejection]
+    ignoreErrors: ["Non-Error promise rejection captured"]
     integrations:
       replay: { maskAllText: false }
       dedupe: false

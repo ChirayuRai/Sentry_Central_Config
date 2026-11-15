@@ -11,8 +11,8 @@ logger = logging.getLogger(__name__)
 
 
 def _revive(value):
-    # { regex: "..." } -> its pattern string. generate.py only allows these where the
-    # Python SDK reads strings as regular expressions (trace_propagation_targets, integrations).
+    # { regex: "..." } -> its pattern string. Python options that take patterns, like
+    # trace_propagation_targets, read plain strings as regular expressions already.
     if isinstance(value, list):
         return [_revive(v) for v in value]
     if isinstance(value, dict):
@@ -45,7 +45,7 @@ def _build_integrations(config, from_code):
 
 
 def get_sentry_options(project, environment, dsn, **code_options):
-    """code_options: callbacks and anything else that can't live in YAML,
+    """code_options: callbacks and anything else that can't be written as data,
     e.g. before_send=..., integrations=[...]"""
     if project != SNAPSHOT["project"]:
         logger.warning("Sentry config is for %r, not %r", SNAPSHOT["project"], project)

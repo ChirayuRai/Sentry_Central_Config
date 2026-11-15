@@ -54,15 +54,5 @@ export function captureTransport() {
         .flatMap(([, items]) => items)
         .filter(([headers]) => headers.type === type)
         .map(([, payload]) => payload),
-    // Root span names, whichever way the SDK sends them: as transactions
-    // (traceLifecycle "static") or as streamed spans ("stream", the SDK 11 default).
-    rootSpanNames: () =>
-      envelopes
-        .flatMap(([, items]) => items)
-        .flatMap(([headers, payload]) => {
-          if (headers.type === "transaction") return [payload.transaction];
-          if (headers.type === "span") return payload.items.filter((s) => s.is_segment).map((s) => s.name);
-          return [];
-        }),
   };
 }

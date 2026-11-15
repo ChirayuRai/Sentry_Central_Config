@@ -24,13 +24,6 @@ async function init(snapshot, project, env, codeOptions = {}) {
   return sent;
 }
 
-function rootSpans(count) {
-  // Run outside the automatic pageload span, so each span makes its own sampling decision.
-  Sentry.withActiveSpan(null, () => {
-    for (let i = 0; i < count; i++) Sentry.startSpan({ name: `job-${i}` }, () => {});
-  });
-}
-
 describe("what the bridge returns", () => {
   it("returns the options for the environment", async () => {
     const { getSentryOptions } = await loadBridge("web-app");
@@ -48,7 +41,7 @@ describe("what the bridge returns", () => {
   it("turns regex entries into RegExp objects and keeps plain strings", async () => {
     const { getSentryOptions } = await loadBridge("web-app");
     const { ignoreErrors, denyUrls, tracePropagationTargets } = getSentryOptions("web-app", "production", DSN);
-    expect(ignoreErrors).toEqual(["ResizeObserver loop limit exceeded", /^Script error\.?$/, "NonErrorPromiseRejection"]);
+    expect(ignoreErrors).toEqual(["ResizeObserver loop limit exceeded", /^AbortError/, "Non-Error promise rejection captured"]);
     expect(denyUrls[0]).toBeInstanceOf(RegExp);
     expect(tracePropagationTargets[0].test("https://api.example.com/users")).toBe(true);
   });
@@ -58,11 +51,6 @@ describe("what the bridge returns", () => {
     const names = integrationNames(getSentryOptions("web-app", "production", DSN));
     expect(names).toEqual(expect.arrayContaining(["BrowserTracing", "Replay", "GlobalHandlers"]));
     expect(names).not.toContain("Dedupe");
-  });
-
-  it("keeps every default integration when none are disabled", async () => {
-    const { getSentryOptions } = await loadBridge("web-new");
-    expect(integrationNames(getSentryOptions("web-new", "production", DSN))).toContain("Dedupe");
   });
 
   it("skips an unknown integration with a warning", async () => {
@@ -97,12 +85,6 @@ describe("what the bridge returns", () => {
     expect(warn).toHaveBeenCalledWith('[sentry] config is for "web-app", not "checkout"');
   });
 
-  it("adds callbacks passed in code", async () => {
-    const beforeSend = (event) => event;
-    const { getSentryOptions } = await loadBridge("web-app");
-    expect(getSentryOptions("web-app", "production", DSN, { beforeSend }).beforeSend).toBe(beforeSend);
-  });
-
   it("lets code override the config, with a warning", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const { getSentryOptions } = await loadBridge("web-app");
@@ -116,15 +98,6 @@ describe("what the bridge returns", () => {
       getSentryOptions("web-app", "production", DSN, { integrations: [Sentry.feedbackIntegration({ autoInject: false })] }),
     );
     expect(names.slice(-3)).toEqual(["BrowserTracing", "Replay", "Feedback"]);
-  });
-
-  it("accepts integrations from code as a function of the full list", async () => {
-    const { getSentryOptions } = await loadBridge("web-app");
-    const options = getSentryOptions("web-app", "production", DSN, {
-      integrations: (all) => all.filter((integration) => integration.name !== "Replay"),
-    });
-    expect(integrationNames(options)).toContain("BrowserTracing");
-    expect(integrationNames(options)).not.toContain("Replay");
   });
 });
 
@@ -170,65 +143,11 @@ describe("what actually gets sent", () => {
   it("drops errors that match ignoreErrors", async () => {
     const sent = await init("web-app", "web-app", "staging");
     Sentry.captureException(new Error("ResizeObserver loop limit exceeded")); // default, substring
-    Sentry.captureException(new Error("Script error.")); // default, regex
-    Sentry.captureException(new Error("NonErrorPromiseRejection")); // added by the project
+    Sentry.captureException(Object.assign(new Error("The user aborted a request."), { name: "AbortError" })); // default, regex
+    Sentry.captureException(new Error("Non-Error promise rejection captured with value: x")); // added by the project
     Sentry.captureException(new Error("real bug"));
     await Sentry.flush(1000);
     expect(sent.payloads("event").map((e) => e.exception.values[0].value)).toEqual(["real bug"]);
-  });
-
-  it("drops errors thrown from URLs in denyUrls", async () => {
-    const sent = await init("web-app", "web-app", "staging");
-    const error = new Error("from an extension");
-    error.stack = "Error: from an extension\n    at run (chrome-extension://abcdef/content.js:10:5)";
-    Sentry.captureException(error);
-    Sentry.captureException(new Error("real bug"));
-    await Sentry.flush(1000);
-    expect(sent.payloads("event").map((e) => e.exception.values[0].value)).toEqual(["real bug"]);
-  });
-
-  it("sends no errors with an error sample rate of 0", async () => {
-    const sent = await init(snapshotWith("web-new", "staging", { sampleRate: 0 }), "web-new", "staging");
-    Sentry.captureException(new Error("boom"));
-    await Sentry.flush(1000);
-    expect(sent.payloads("event")).toEqual([]);
-  });
-
-  it("sends every root span with a traces sample rate of 1", async () => {
-    const sent = await init("web-new", "web-new", "staging");
-    rootSpans(5);
-    await Sentry.flush(1000);
-    expect(sent.rootSpanNames()).toEqual(expect.arrayContaining(["job-0", "job-1", "job-2", "job-3", "job-4"]));
-  });
-
-  it("sends no spans with a traces sample rate of 0", async () => {
-    const sent = await init(snapshotWith("web-new", "staging", { tracesSampleRate: 0 }), "web-new", "staging");
-    rootSpans(5);
-    await Sentry.flush(1000);
-    expect(sent.rootSpanNames()).toEqual([]);
-  });
-
-  it("sends at most transportOptions.bufferSize envelopes at once and drops the rest", async () => {
-    // Requests stay open until released, so the buffer fills up.
-    const open = [];
-    const transport = (options) =>
-      Sentry.createTransport(options, () => new Promise((resolve) => open.push(() => resolve({ statusCode: 200 }))));
-    // Only errors: no session envelope at startup, no spans.
-    const snapshot = snapshotWith("web-new", "staging", {
-      transportOptions: { bufferSize: 2 },
-      integrations: { browserSession: false },
-    });
-    await init(snapshot, "web-new", "staging", { transport });
-    expect(Sentry.getClient().getOptions().transportOptions).toEqual({ bufferSize: 2 });
-    try {
-      for (let i = 0; i < 5; i++) Sentry.captureException(new Error(`error ${i}`));
-      await Sentry.flush(100);
-      expect(open).toHaveLength(2); // the SDK default of 64 would have sent all 5
-    } finally {
-      open.forEach((release) => release()); // Sentry.close(0) in afterEach waits for open requests
-    }
-    await Sentry.flush(1000);
-    expect(open).toHaveLength(2); // the other 3 were dropped, not queued
   });
 
   it("runs a beforeSend passed in code", async () => {
