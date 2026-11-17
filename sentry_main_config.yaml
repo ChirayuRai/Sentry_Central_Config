@@ -56,7 +56,7 @@ default:
 # Each project needs root (where generate.py writes its files, relative to the folder it
 # runs from) and platform. Anything else overrides the defaults for that project.
 web-app:
-  root: examples/web-app/src
+  root: examples/web-app
   platform: javascript-browser
   environments:
     production:
@@ -68,7 +68,7 @@ web-app:
     # tracePropagationTargets: [{regex: "^/"}, {regex: "^https://api\\.example\\.com"}]
 
 api:
-  root: examples/api/app
+  root: examples/api
   platform: python
   # Personal data stays off unless a project opts in, for example:
   # native:

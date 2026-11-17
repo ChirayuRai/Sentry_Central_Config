@@ -1,3 +1,0 @@
--r sentry-config/requirements.txt
-pytest==9.1.1
-sentry-sdk==2.74.0
