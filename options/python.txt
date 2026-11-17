@@ -4,19 +4,16 @@ auto_enabling_integrations
 auto_session_tracking
 ca_certs
 cert_file
-custom_repr
 data_collection
 db_query_source_threshold_ms
 debug
 default_integrations
-disabled_integrations
 dist
 enable_backpressure_handling
 enable_db_query_source
 enable_http_request_source
 enable_logs
 enable_metrics
-enable_tracing
 functions_to_trace
 http_proxy
 http_request_source_threshold_ms
@@ -45,7 +42,6 @@ propagate_traces
 proxy_headers
 sample_rate
 send_client_reports
-send_default_pii
 server_name
 shutdown_timeout
 socket_options

@@ -28,7 +28,6 @@ sampleRate
 sendClientReports
 skipBrowserExtensionCheck
 spotlight
-stackParser
 strictTraceContinuation
 traceLifecycle
 tracePropagationTargets

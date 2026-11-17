@@ -11,7 +11,8 @@ logger = logging.getLogger(__name__)
 
 
 def _revive(value):
-    # { regex: "..." } -> plain string; Python already treats these strings as patterns.
+    # { regex: "..." } -> its pattern string. Python options that take patterns, like
+    # trace_propagation_targets, read plain strings as regular expressions already.
     if isinstance(value, list):
         return [_revive(v) for v in value]
     if isinstance(value, dict):
@@ -26,23 +27,25 @@ def _load_integration(path):
     return getattr(importlib.import_module(f"sentry_sdk.integrations.{module}"), cls)
 
 
-def _build_integrations(config):
+def _build_integrations(config, from_code):
+    in_code = {integration.identifier for integration in from_code}
     enabled, disabled = [], []
     for path, options in (config or {}).items():
         try:
             cls = _load_integration(path)
-        except Exception as exc:  # missing module, or framework not installed
+            if options is False:
+                disabled.append(cls)
+            elif cls.identifier in in_code:
+                logger.warning("Code replaces the configured Sentry integration %r", path)
+            else:
+                enabled.append(cls(**(options if isinstance(options, dict) else {})))
+        except Exception as exc:  # missing module, framework not installed, or a bad option
             logger.warning("Skipping Sentry integration %r: %s", path, exc)
-            continue
-        if options is False:
-            disabled.append(cls)
-        else:
-            enabled.append(cls(**(options if isinstance(options, dict) else {})))
     return enabled, disabled
 
 
 def get_sentry_options(project, environment, dsn, **code_options):
-    """code_options: callbacks and anything else that can't live in YAML,
+    """code_options: callbacks and anything else that can't be written as data,
     e.g. before_send=..., integrations=[...]"""
     if project != SNAPSHOT["project"]:
         logger.warning("Sentry config is for %r, not %r", SNAPSHOT["project"], project)
@@ -51,9 +54,9 @@ def get_sentry_options(project, environment, dsn, **code_options):
         logger.warning("No Sentry config for environment %r", environment)
 
     options = _revive(resolved or {})
-    enabled, disabled = _build_integrations(options.pop("integrations", None))
+    code_integrations = list(code_options.pop("integrations", []))
+    enabled, disabled = _build_integrations(options.pop("integrations", None), code_integrations)
 
-    code_integrations = code_options.pop("integrations", [])
     for key in code_options.keys() & options.keys():
         logger.warning("Code overrides central Sentry config for %r", key)
 
@@ -67,6 +70,6 @@ def get_sentry_options(project, environment, dsn, **code_options):
         **options,
         "dsn": dsn,
         "environment": environment,
-        "integrations": enabled + list(code_integrations),
+        "integrations": enabled + code_integrations,
         "disabled_integrations": disabled,
     }

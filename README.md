@@ -1,107 +1,76 @@
-# Central Sentry config (prototype)
+# Central Sentry config
 
-A reference implementation of a centralized Sentry config. This is not an official Sentry feature.
+One Sentry SDK config for all your apps. Each app's build reads its settings from here, so every team starts from the same baseline and a change reaches each app with its next build. This is a reference implementation, not an official Sentry feature.
 
-## How it works
+## What's here
 
-```mermaid
-flowchart TD
-    config["1. Fill out the config<br/>sentry_main_config.yaml"]
-    lists["platforms/*.txt<br/>allowed option names"]
-    source["bridges/<br/>bridge source files"]
-    generate["2. CI runs generate.py<br/>before each build"]
-    fail["Build fails and<br/>lists every problem"]
-    subgraph out["3. Written to the project's root"]
-        json["sentry_local_config.json<br/>options for each<br/>environment"]
-        bridge["sentry_bridge.js<br/>or sentry_bridge.py"]
-    end
-    app["4. The app imports<br/>getSentryOptions and<br/>passes the project,<br/>environment and DSN"]
-    sdk["Sentry.init(options)"]
+| File | What it is |
+|---|---|
+| `sentry_main_config.yaml` | The config: defaults, plus one block per app. |
+| `generate.py` | Runs in each app's pipeline. Checks the config and writes that app's settings into it. |
+| `bridges/` | Copied into each app by `generate.py`. The app calls the bridge to get its options. |
+| `options/` | The option names `generate.py` accepts, per SDK language. |
+| `examples/` | Sentry init code for a browser app and a Python service. |
 
-    config --> generate
-    lists -.-> generate
-    source -.-> generate
-    generate -->|invalid| fail
-    generate -->|valid| out
-    json -->|read at runtime| bridge
-    bridge --> app
-    app --> sdk
-```
-
-1. **Fill out the config.** `sentry-config/sentry_main_config.yaml` holds the defaults plus one block per project. Each project block sets its `platform` and its `root`, the folder that gets the generated files.
-2. **CI runs `generate.py`** for the project being built. It checks the whole config against the allowed option names in `sentry-config/platforms/`, and fails the build if anything is wrong. The lists match `@sentry/browser` and `@sentry/react` 11.11 and `sentry-sdk` 2.74. Keep one set per SDK major version.
-3. **It writes two files into the project's `root`.** `sentry_local_config.json` holds the project's resolved options for every environment. The bridge is a copy from `sentry-config/bridges/`: `sentry_bridge.js` for `javascript-browser`, `react` and `next-js` (client side), or `sentry_bridge.py` for `python` and `django`.
-4. **The app imports `getSentryOptions`** (`get_sentry_options` in Python) from the bridge and passes its project name, environment and DSN. The bridge picks that environment's options at runtime, so a build promoted from staging to production uses production values. The DSN comes from the app, not the config. See [In a project](#in-a-project).
-
-Also in this repo: `examples/` has sample init files for a browser app and a Python service, and `tests/` has the test suite (see [Tests](#tests)).
+Supported platforms: `python`, `django`, `javascript-browser`, `react` and `next-js` (client side). The option lists match `sentry-sdk` 2.74 and the JavaScript SDKs 11.11.
 
 ## Try it
 
-Run from this folder (paths in the YAML are relative to it):
-
 ```
-pip install pyyaml
-python sentry-config/generate.py --project web-app --release 1.0.0
-python sentry-config/generate.py --project api --release 1.0.0
+python3 -m pip install -r requirements.txt
+python3 generate.py --check
+python3 generate.py --project web-app --release 1.0.0
 ```
 
-Each command writes `sentry_local_config.json` and a bridge into the project's `root`. The generated files are gitignored, so run the same command in CI before each build, and locally before running a project. Pass `--config <path>` to use a config file somewhere other than `sentry-config/sentry_main_config.yaml`.
+The last command writes the web app's settings (`sentry_local_config.json`) and the bridge into `examples/web-app/`, next to its init code.
 
-If the config is invalid, the command prints every problem and exits with status 1, which fails the build.
+## Setting it up
 
-## In a project
+### The central repo
 
-JavaScript:
+Put these files in a repo of their own, and replace the example defaults and apps in `sentry_main_config.yaml` with yours. Run `python3 generate.py --check` on every change, and make it a required check: a broken config fails every app's build.
 
-```js
-Sentry.init(getSentryOptions("web-app", environment, dsn, { beforeSend, integrations: [...] }));
-```
+### Each app
 
-Python:
+1. Add the app's block to the central config. It needs a `platform` and a `root`, the folder that gets the generated files, relative to the app repo's root.
+2. Add this step to the app's pipeline, before the build. Run it from the app repo's root. It needs Python 3 and read access to the central repo. Developers run the same step before running the app locally.
 
-```python
-sentry_sdk.init(**get_sentry_options("api", environment, dsn, before_send=..., integrations=[...]))
-```
+   ```sh
+   config=$(mktemp -d)
+   git clone --depth 1 --branch main <central config repo> "$config"
+   python3 -m pip install -r "$config/requirements.txt"
+   python3 "$config/generate.py" --project <name> --release <version>
+   ```
 
-The last argument is optional. Use it for callbacks, samplers and integrations that can't be written as data.
+3. Gitignore the generated files: `sentry_local_config.json`, `sentry_bridge.js`, `sentry_bridge.d.ts` and `sentry_bridge.py`.
+4. Initialize Sentry through the bridge, as the files in `examples/` do:
 
-The JavaScript bridge imports the project's SDK: `@sentry/browser`, `@sentry/react` or `@sentry/nextjs`. Call `init` from the same package.
+   ```js
+   Sentry.init(getSentryOptions("web-app", environment, dsn, { beforeSend }));
+   ```
 
-- **React:** React Router tracing integrations take router functions, so pass them in code. They replace the configured `browserTracing` because they share its name.
-- **Next.js:** client side only. Import the bridge from `instrumentation-client.js`. `@sentry/nextjs` adds `browserTracing` on its own, so the config doesn't need to list it.
+   ```python
+   sentry_sdk.init(**get_sentry_options("api", environment, dsn, before_send=before_send))
+   ```
 
-## Tests
+   - Import `Sentry` from the package the app uses: `@sentry/browser`, `@sentry/react` or `@sentry/nextjs`. Next.js apps do this in `instrumentation-client.ts`.
+   - Pick the environment at runtime, so a build promoted from staging to production reports as production.
 
-```
-pip install -r requirements-dev.txt
-npm install
-pytest       # generator, Python bridge, Python option list
-npm test     # JavaScript bridge, JavaScript option list
-```
+## Moving an existing app over
 
-The suite has three parts:
+1. Move each option the app passes to `Sentry.init` into its block in the config, or drop it where the defaults already cover it.
+2. Keep callbacks, samplers and integrations that take functions, such as React Router's, in code. They go in the last argument.
+3. The app still passes `dsn` and `environment`. The `release` comes from `--release`.
 
-- **Generator** (`tests/python/test_generate.py`): merge rules, per-platform resolution, every validation error, and the command line. The full output for each project in `tests/fixtures/config.yaml` is compared against the snapshots in `tests/fixtures/expected/`. It also loads the bridge from the folder `generate.py` wrote, so a filename mismatch between the two fails the suite.
-- **Bridges** (`tests/python/test_bridge.py`, `tests/js/*.test.js`): each bridge is loaded the way a project gets it, next to an expected snapshot, and run against the real SDK (`sentry-sdk`, `@sentry/browser`, `@sentry/react`). The tests check what the bridge returns, what the SDK ends up configured with, and what it actually sends: ignored errors are dropped, a sample rate of 0 sends nothing, a rate of 1 sends everything, and callbacks passed in code run. A test transport records what would be sent, so nothing leaves the machine. `@sentry/nextjs` isn't installed because it pulls in Next.js.
-- **Option lists** (`tests/python/test_option_lists.py`, `tests/js/option-list.test.js`): check every name in `sentry-config/platforms/` against the installed SDK. The JavaScript check type-checks the names against the SDK's `BrowserOptions` type, because the JavaScript SDK ignores unknown options without any warning. React and Next.js client `init` take that same type.
+If code still sets a value the config also sets, the bridge logs a warning, so leftovers show up in the console.
 
-The JavaScript tests read the snapshots in `tests/fixtures/expected/`, which the Python tests prove match the generator's output. So the JavaScript tests don't need Python installed.
+## Writing the config
 
-### When the generator's output changes on purpose
-
-Regenerate the expected snapshots, then review the diff before committing:
-
-```
-UPDATE_GOLDEN=1 pytest
-```
-
-### Testing other SDK versions
-
-The pinned versions in `requirements-dev.txt` and `package.json` match the option lists. To check a version your projects use, install it and rerun the suite:
-
-```
-pip install sentry-sdk==<version> && pytest
-npm install -D @sentry/browser@<version> @sentry/react@<version> && npm test
-```
-
-A failing option-list test means an option was renamed or removed in that version. Keep a separate option list for each SDK major version you support.
+- **Layers.** Each environment's options are built from `default.shared`, `default.environments.<env>` and `default.native.<platform>`, then from the app's own `shared`, `environments.<env>` and `native`. Later layers win.
+- **Merging.** Maps merge and single values replace. Lists append, so an app can't remove an entry it inherits.
+- **Shared and native options.** Shared options use snake_case and are converted to each SDK's names. A platform without the option doesn't get it. Native options use the SDK's own names and apply after environments, so keep per-environment values, like sample rates, in `environments`.
+- **Patterns.** In JavaScript, a string matches anywhere in the message, and `{regex: "..."}` becomes a `RegExp`. In Python, `ignore_errors` matches exception class names, not patterns.
+- **Integrations.** A map of names to options. In JavaScript, `replay` builds `replayIntegration()`; in Python, `django.DjangoIntegration` is the class under `sentry_sdk.integrations`. Use `{}` for default options, and `false` to turn off an integration the SDK adds by default.
+- **Callbacks** go in code, not the config.
+- **Checks.** `generate.py` fails on unknown or deprecated options, lists written as a single value, invalid regexes, misnamed integrations, and browser sample rates whose integration is missing. It checks every app, plus a new app on each platform in `default.native`.
+- **SDK upgrades.** When your apps move to a new SDK major version, check its changelog for renamed or removed options and update `options/`.

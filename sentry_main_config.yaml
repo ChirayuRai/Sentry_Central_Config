@@ -1,0 +1,75 @@
+# Central Sentry config. generate.py checks it and writes each project's resolved options.
+#
+# Each environment's options are built in layers, later layers winning:
+#   default.shared → default.environments.<env> → default.native.<platform>
+#   → project.shared → project.environments.<env> → project.native
+# Maps merge and single values replace. Lists append, so a project can't drop an entry it
+# inherits: keep default lists to entries every project wants.
+# Native comes after environments, so keep per-environment values like sample rates in
+# environments. A native value would apply in every environment.
+
+default:
+  # Shared options: snake_case, converted to each SDK's names (camelCase for JavaScript).
+  # A platform without the option doesn't get it (replay rates don't reach Python).
+  shared:
+    attach_stacktrace: true
+
+  # Every environment the apps report. Production starts low; raise it per project.
+  environments:
+    production:
+      traces_sample_rate: 0.1
+      profile_session_sample_rate: 0.1
+      replays_session_sample_rate: 0.05
+      replays_on_error_sample_rate: 1.0
+    staging:
+      traces_sample_rate: 1.0
+      profile_session_sample_rate: 1.0
+      replays_session_sample_rate: 1.0
+      replays_on_error_sample_rate: 1.0
+      debug: true
+    development:
+      traces_sample_rate: 1.0
+      profile_session_sample_rate: 0
+      replays_session_sample_rate: 0
+      replays_on_error_sample_rate: 0
+
+  # Native options: each SDK's own names and value formats, passed through as-is.
+  native:
+    javascript-browser: &browser
+      ignoreErrors:
+        - ResizeObserver loop limit exceeded    # a plain string matches anywhere in the message
+        - regex: "^AbortError"                  # {regex} becomes a RegExp
+      denyUrls:
+        - regex: "^(chrome|moz)-extension://"
+      integrations:
+        browserTracing: {}
+        browserProfiling: {}
+        replay: {}          # masks all text and blocks media unless a project overrides it
+    react: *browser         # the same block as javascript-browser
+    next-js: *browser       # the same; the bridge uses @sentry/nextjs's own browserTracing
+    django:
+      ignore_errors: [KeyboardInterrupt]
+      enable_logs: true
+      integrations:
+        django.DjangoIntegration: {}    # the class path under sentry_sdk.integrations
+
+# Each project needs root (where generate.py writes its files, relative to the folder it
+# runs from) and platform. Anything else overrides the defaults for that project.
+web-app:
+  root: examples/web-app
+  platform: javascript-browser
+  environments:
+    production:
+      traces_sample_rate: 0.2
+  native:
+    ignoreErrors: ["Non-Error promise rejection captured"]    # added to the default list
+    # To trace requests to your API as well. "^/" keeps the same-origin requests the SDK
+    # traces by default.
+    # tracePropagationTargets: [{regex: "^/"}, {regex: "^https://api\\.example\\.com"}]
+
+api:
+  root: examples/api
+  platform: python
+  # Personal data stays off unless a project opts in, for example:
+  # native:
+  #   data_collection: {user_info: true}
